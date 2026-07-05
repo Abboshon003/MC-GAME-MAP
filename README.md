@@ -30,6 +30,23 @@ npm start          # Expo dev server for iOS/Android
 npm run typecheck
 ```
 
+## Build an APK / IPA
+
+The repo is pre-configured for [EAS Build](https://docs.expo.dev/build/introduction/)
+(`eas.json`, app identifiers, location permissions):
+
+```bash
+npm install -g eas-cli
+eas login
+
+eas build -p android --profile preview     # installable .apk
+eas build -p android --profile production  # .aab for the Play Store
+eas build -p ios --profile production      # .ipa (needs an Apple Developer account)
+```
+
+Local alternative: `npx expo prebuild`, then `cd android && ./gradlew assembleRelease`
+for an APK, or open `ios/` in Xcode (Mac only) and Archive for an IPA.
+
 ## Docs
 
 - [App specification](docs/APP_SPEC.md)

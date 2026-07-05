@@ -9,9 +9,11 @@
     "userInterfaceStyle": "dark",
     "backgroundColor": "#2B2B2B",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.abboshon.mcgamemap"
     },
     "android": {
+      "package": "com.abboshon.mcgamemap",
       "adaptiveIcon": {
         "backgroundColor": "#2B2B2B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -25,6 +27,13 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "MC Game Map uses your location to show your position on the adventure map and guide you turn by turn to your destination.",
+          "isAndroidBackgroundLocationEnabled": false
+        }
+      ],
       [
         "expo-splash-screen",
         {
