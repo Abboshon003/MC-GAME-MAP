@@ -33,7 +33,7 @@ export default function SavedScreen() {
                 onPress={() => {
                   play('wood-tap');
                   router.push({
-                    pathname: '/map',
+                    pathname: '/',
                     params: {
                       name: p.name,
                       lat: String(p.location.lat),

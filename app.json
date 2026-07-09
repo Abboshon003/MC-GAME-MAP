@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "MC Game Map",
-    "slug": "mc-game-map",
-    "version": "0.1.0",
+    "name": "TerraPath",
+    "slug": "terrapath",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mcgamemap",

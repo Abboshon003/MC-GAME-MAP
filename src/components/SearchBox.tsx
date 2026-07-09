@@ -6,6 +6,8 @@ export interface SearchBoxProps {
   value: string;
   onChangeText: (t: string) => void;
   onSubmit?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
   placeholder?: string;
   autoFocus?: boolean;
   style?: ViewStyle;
@@ -19,6 +21,8 @@ export function SearchBox({
   value,
   onChangeText,
   onSubmit,
+  onFocus,
+  onBlur,
   placeholder = 'WHERE TO?',
   autoFocus,
   style,
@@ -61,6 +65,8 @@ export function SearchBox({
           value={value}
           onChangeText={onChangeText}
           onSubmitEditing={onSubmit}
+          onFocus={onFocus}
+          onBlur={onBlur}
           placeholder={placeholder}
           placeholderTextColor={colors.textDim}
           autoFocus={autoFocus}

@@ -1,25 +1,29 @@
-# MC GAME MAP
+# TerraPath
 
 A real-world navigation app that turns your surroundings into a
-**voxel-style parchment adventure map** — real streets, real GPS, real
-turn-by-turn, presented like the map item of a survival-crafting game.
+**chunky voxel adventure map** — real streets, real GPS, real turn-by-turn,
+rendered as a top-down survival-crafting world.
 
-![status](https://img.shields.io/badge/milestone-1-blue) ![stack](https://img.shields.io/badge/expo-SDK%2057-black)
+![status](https://img.shields.io/badge/milestone-2-blue) ![stack](https://img.shields.io/badge/expo-SDK%2057-black)
 
 ## Features
 
-- 🗺️ **Parchment map** — the route renders on an aged paper item inside a
-  wooden frame, not a Google-Maps pane
-- 🧭 **Live turn-by-turn** — real routes (OSRM) with game-flavored
-  instructions, live distance countdown, ETA and arrival detection
-- 🔎 **Live search** — real place search (OSM Nominatim) styled as an
-  inventory screen
-- 📍 **Voxel player marker** — an original gold triangle that follows your
-  GPS heading; going off-route triggers *"Recalculating path…"*
-- 🚗 **Demo drive** — no GPS? The app simulates driving the route so the
-  whole flow works anywhere (including the browser)
-- 🎨 **Full pixel design system** — block buttons, stone panels, item
-  slots, XP progress bars, original pixel icons and OFL pixel fonts
+- 🧱 **Voxel world map** — real roads, water, parks and buildings around you,
+  drawn as chunky terrain blocks (live OpenStreetMap data), not a Google-Maps pane
+- 🗺️ **Map-first** — opens straight to the live world with a search bar on top
+  and a corner menu; no landing screen
+- 🧭 **Live turn-by-turn** — real routes with game-flavored instructions, live
+  distance countdown, ETA, arrival, and *"Recalculating path…"* rerouting
+- 🚶 **Walk / Drive / Bike** — multimodal routing (OSRM + Valhalla)
+- 🔎 **Proximity search** — results ordered closest→farthest from you
+- 🏪 **Nearby businesses** — shops/restaurants/etc. as original pixel icons;
+  **tap one to route** to it
+- 🌗 **Day / night** — the map's tint shifts with your local time
+- 📏 **US units** — feet & miles by default
+- 📍 **Voxel player marker** — an original gold triangle that follows your GPS heading
+- 🚗 **Demo drive** — no GPS? The app simulates the drive so the flow works anywhere
+- 🎨 **Full pixel design system** — block buttons, stone panels, item slots,
+  XP bars, original pixel icons and OFL pixel fonts
 
 ## Run it
 

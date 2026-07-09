@@ -1,11 +1,10 @@
-# MC GAME MAP — App Specification
+# TerraPath — App Specification
 
 ## Product identity
 
 A real-world navigation app that turns the user's surroundings into a
-**voxel-style parchment adventure map**. Real streets, real GPS, real
-turn-by-turn — presented as an item held by a player inside a
-survival-crafting game.
+**chunky voxel adventure map**. Real streets, real GPS, real turn-by-turn —
+rendered as a top-down survival-crafting world made of terrain blocks.
 
 Design law: **if it looks like Apple Maps / Google Maps / Waze / Material
 Design / default iOS — redesign it.** Full rules live in
@@ -14,71 +13,87 @@ Design / default iOS — redesign it.** Full rules live in
 ## Platform & stack
 
 - **React Native + Expo (SDK 57), TypeScript, expo-router**
-- Rendering: `react-native-svg` (map scene, pixel icons)
+- Rendering: `react-native-svg` (voxel map, pixel icons)
 - Position: `expo-location` (GPS; browser geolocation on web)
-- Live data (free, keyless, swappable via `src/nav/providers.ts`):
-  - Geocoding: **OSM Nominatim**
-  - Routing: **OSRM public server** (driving profile, full step maneuvers)
+- Units: **US customary** (feet / miles) by default — `formatDistance` in
+  `src/nav/geo.ts`.
+- Live data (free, keyless, each behind a provider module):
+  - World features + businesses: **OSM Overpass API** (`src/map/worldData.ts`)
+  - Geocoding: **Nominatim**, proximity-biased & distance-sorted (`src/nav/providers.ts`)
+  - Routing: **OSRM** (driving) + **Valhalla** (walk / bike / driving fallback)
 
-## Screens
+## Screens / routes
 
 | Route | Screen | Description |
 |---|---|---|
-| `/` | Title menu | Game main menu: compass crest, gold pixel title, block buttons |
-| `/search` | Search Destination | Stone search box, live geocoded results as item rows, saved-place chest shortcuts |
-| `/map` | Parchment Map | The navigation surface: wooden frame, parchment, gold route, voxel player, HUD panels |
-| `/saved` | Saved Places | Chest screen; each place is an item in a slot |
-| `/downloads` | Download Area | Offline regions as item cards with XP progress bars (demo data) |
+| `/` | **MapHub** (`src/screens/MapHub.tsx`) | The whole app: live voxel world, player, business markers, top search bar, corner menu, and the route HUD. Opens here directly. |
+| `/saved` | Saved Places | Chest screen; each place is an item in a slot. Reached from the corner menu. |
+| `/downloads` | Download Area | Offline regions as item cards with XP progress bars. Reached from the corner menu. |
+
+## The voxel map
+
+- `src/map/worldData.ts` fetches roads, water, parks/landuse, buildings and
+  business POIs for a bbox around the user (Overpass).
+- `src/map/voxelize.ts` rasterizes those features into a chunky block grid
+  (`Map<"bx,by", TerrainType>`) — scanline-filled polygons + stamped road
+  lines. Only non-grass blocks are stored; the renderer paints a grass base.
+- `src/map/useWorldTiles.ts` fetches on first fix, refetches when the player
+  leaves the loaded area (~400 m margin), caches the last grid, and degrades
+  to procedural terrain if Overpass fails (map never blanks).
+- `src/map/ParchmentMap.tsx` draws the grass base, terrain blocks, the gold
+  route (brown outline), the voxel player triangle, the destination banner,
+  and a **day/night tint** (`src/map/daylight.ts`).
+- Block math (`BLOCK_ZOOM`, `projectBlock`, `blockScreenSize`) lives in
+  `src/map/projection.ts`.
+
+## Businesses (POIs)
+
+- `src/nav/poi.ts` classifies OSM tags into categories (restaurant, cafe,
+  grocery, bank, pharmacy, hotel, fuel, …).
+- `src/icons/poiIcons.tsx` renders each with an original 12×12 pixel icon.
+- Nearest ~40 are shown as tappable markers while browsing; tapping opens a
+  callout (`src/components/PoiCallout.tsx`) with distance + **NAVIGATE**.
 
 ## Main user flow
 
-1. Open app → pixel title/menu.
-2. `START NAVIGATION` → search destination (live Nominatim results while typing).
-3. Pick a place → **"Crafting route…"** XP loading while OSRM computes the route.
-4. Parchment map opens in overview (whole route fitted).
-5. `BEGIN QUEST` → camera follows the voxel player triangle.
-   - With GPS: real position, snapped to the route.
-   - Without GPS (denied/unavailable/browser): **demo drive** simulates
-     driving the route so the full experience still works.
-6. Turn instructions appear in a bottom pixel panel: gold arrow glyph,
-   game-flavored instruction ("Turn left onto Oak Street"), live distance
-   countdown, XP progress bar for the whole journey, live ETA in the top strip.
-7. Going >45 m off route (3 consecutive fixes) → **"Recalculating path…"**
-   overlay + automatic reroute from the current position.
-8. Within 25 m of the destination → **"YOU HAVE ARRIVED!"** quest-complete panel.
+1. App opens straight to the **live voxel map** centered on GPS, with nearby
+   businesses shown as pixel markers.
+2. **Search** (top bar) → proximity-sorted results (nearest first), or **tap a
+   business** → callout → NAVIGATE.
+3. Route preview: destination, distance/ETA (miles), and a **Drive/Walk/Bike**
+   toggle. Changing mode re-crafts the route.
+4. **BEGIN QUEST** → the camera follows the voxel player triangle (real GPS, or
+   demo drive if GPS is unavailable).
+5. Turn-by-turn in a bottom pixel panel: gold arrow, instruction, live distance
+   (feet/miles), journey XP bar. Off-route → **"Recalculating path…"** + reroute.
+6. Within ~80 ft of the destination → **YOU HAVE ARRIVED!**
 
 ## Navigation engine (`src/nav/`)
 
-- `providers.ts` — Nominatim search, OSRM route fetch, OSRM→game
-  instruction text ("Set out on your quest", "At the circle, take exit 2…").
-- `geo.ts` — haversine, bearings, cumulative distances, windowed
-  snap-to-polyline, HUD formatting (`850 m`, `1.2 km`, `1 h 12 min`).
-- `useLiveNavigation.ts` — per-fix derivation of: snapped position, active
-  step, distance-to-maneuver, remaining distance/ETA, off-route detection
-  with reroute callback, arrival detection. Also `useGpsPosition` (expo-location
-  watcher) and `useDemoDrive` (route simulator).
+- `providers.ts` — Nominatim search (proximity sort), OSRM driving route,
+  shared game-flavored instruction text; delegates walk/bike to Valhalla.
+- `valhalla.ts` — Valhalla provider (auto/pedestrian/bicycle) + polyline6 decode.
+- `geo.ts` — haversine, bearings, snap-to-route, **imperial** HUD formatting.
+- `useLiveNavigation.ts` — per-fix snapped position, active step,
+  distance-to-turn, ETA, off-route/reroute, arrival; plus `useGpsPosition`
+  and `useDemoDrive`.
 
-## Current milestone status
+## Milestone status
 
-**Done (this milestone):** design system + all five screens + live search,
-live routing, live GPS turn-by-turn, reroute, demo drive, docs.
+**Done (M2):** voxel world map, map-first UX, proximity search, business POIs +
+tap-to-route, walk/drive/bike, day/night, US units, TerraPath rename — on top of
+M1's design system + live turn-by-turn.
 
-**Milestone 2 (next):**
-- Street-network rendering on the parchment (Overpass/vector tiles drawn
-  in voxel style) so surrounding roads are visible, not just the route.
-- Persist saved places (AsyncStorage) + add/edit/delete flows.
-- Real offline region downloads.
-- Original SFX pack wired into `src/sound/sounds.ts` (expo-audio).
-- Voice guidance (pixel-styled TTS), speed/units settings.
-- Optional commissioned proprietary pixel font (swap in `src/theme/typography.ts`).
-- Production routing/geocoding provider with an API key + usage policies
-  (OSRM demo & Nominatim are fine for development, not production traffic).
+**Roadmap:** fog-of-war exploration, placeable map banners, XP/distance leveling,
+biome theming, persisted saved places + real offline downloads (AsyncStorage),
+original SFX pack, voice guidance, vector-tile basemap (perf upgrade over
+Overpass), production routing/geocoding keys.
 
 ## Development
 
 ```bash
 npm install
 npm run web        # run in browser
-npm start          # Expo dev server (scan with Expo Go / dev build)
+npm start          # Expo dev server (Expo Go / dev build)
 npm run typecheck  # tsc --noEmit
 ```

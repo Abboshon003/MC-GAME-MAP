@@ -117,10 +117,18 @@ export function offsetOfProjection(proj: RouteProjection, cumulative: number[], 
   return cumulative[proj.segIndex] + proj.t * segLen;
 }
 
-/** Format meters like a game HUD: "850 m" / "1.2 km". */
+/**
+ * Format a distance in US customary units (default): feet under 0.1 mi,
+ * then miles. e.g. "300 ft" / "0.4 mi" / "12 mi".
+ */
 export function formatDistance(meters: number): string {
-  if (meters < 950) return `${Math.max(0, Math.round(meters / 10) * 10)} m`;
-  return `${(meters / 1000).toFixed(1)} km`;
+  const miles = meters / 1609.344;
+  if (miles < 0.1) {
+    const feet = meters * 3.28084;
+    return `${Math.max(0, Math.round(feet / 10) * 10)} ft`;
+  }
+  if (miles < 10) return `${miles.toFixed(1)} mi`;
+  return `${Math.round(miles)} mi`;
 }
 
 /** Format seconds: "3 min" / "1 h 12 min". */

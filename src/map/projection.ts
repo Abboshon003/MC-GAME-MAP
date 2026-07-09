@@ -85,6 +85,48 @@ export function visibleCells(
   return out;
 }
 
+/* ————————————————————————————————————————————————————————————————
+ * Voxel block grid
+ *
+ * The world is diced into square "blocks" defined in mercator pixels at a
+ * fixed BLOCK_ZOOM. One block ≈ 19 m on the ground and renders ~16 px when
+ * the camera sits at BLOCK_ZOOM. Terrain is rasterized into these blocks
+ * once per data fetch (see voxelize.ts); rendering just projects them.
+ * ———————————————————————————————————————————————————————————————— */
+export const BLOCK_ZOOM = 17;
+/** Mercator pixels (at BLOCK_ZOOM) along one block edge. */
+export const BLOCK = 16;
+
+/** Continuous block-space coordinate of a geographic point. */
+export function toBlockXY(p: LatLng): { x: number; y: number } {
+  return { x: worldX(p.lon, BLOCK_ZOOM) / BLOCK, y: worldY(p.lat, BLOCK_ZOOM) / BLOCK };
+}
+
+/** Integer block index containing a geographic point. */
+export function blockOf(p: LatLng): { bx: number; by: number } {
+  const b = toBlockXY(p);
+  return { bx: Math.floor(b.x), by: Math.floor(b.y) };
+}
+
+/** On-screen size (px) of one block at the given camera zoom. */
+export function blockScreenSize(camera: MapCamera): number {
+  return BLOCK * 2 ** (camera.zoom - BLOCK_ZOOM);
+}
+
+/** Project a block's top-left corner (block indices) to screen pixels. */
+export function projectBlock(
+  bx: number,
+  by: number,
+  camera: MapCamera,
+  view: Viewport,
+): { x: number; y: number } {
+  const scale = 2 ** (camera.zoom - BLOCK_ZOOM);
+  return {
+    x: (bx * BLOCK - worldX(camera.center.lon, BLOCK_ZOOM)) * scale + view.width / 2,
+    y: (by * BLOCK - worldY(camera.center.lat, BLOCK_ZOOM)) * scale + view.height / 2,
+  };
+}
+
 /** Deterministic 2D hash → 0..1 (stable terrain decoration per cell). */
 export function cellHash(cx: number, cy: number, salt = 0): number {
   let h = (cx * 374761393 + cy * 668265263 + salt * 1274126177) | 0;

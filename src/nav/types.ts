@@ -13,7 +13,12 @@ export interface Place {
   detail?: string;
   location: LatLng;
   category?: 'home' | 'work' | 'food' | 'gas' | 'parking' | 'destination' | 'star';
+  /** Straight-line distance from the user, if known (for proximity sort). */
+  distanceMeters?: number;
 }
+
+/** Travel mode for routing. */
+export type RouteProfile = 'drive' | 'walk' | 'bike';
 
 /** One turn-by-turn maneuver. */
 export interface RouteStep {

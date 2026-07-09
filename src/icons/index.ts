@@ -12,3 +12,4 @@ export {
   CategoryIcon,
 } from './icons';
 export type { PlaceCategory } from './icons';
+export { PoiIcon } from './poiIcons';

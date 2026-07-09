@@ -1,30 +1,34 @@
-import { cumulativeDistances, offsetOfProjection, projectOntoRoute } from './geo';
-import type { LatLng, Place, Route, RouteStep } from './types';
+import { cumulativeDistances, haversineMeters, offsetOfProjection, projectOntoRoute } from './geo';
+import type { LatLng, Place, Route, RouteProfile, RouteStep } from './types';
+import { fetchValhallaRoute } from './valhalla';
 
 /**
  * Live data providers — free, no API keys:
- *   - Geocoding: OpenStreetMap Nominatim
- *   - Routing:   OSRM public demo server (driving profile, full steps)
+ *   - Geocoding: OpenStreetMap Nominatim (proximity-biased, distance-sorted)
+ *   - Routing:   OSRM (driving) + Valhalla (walk / bike / driving fallback)
  *
- * Both sit behind these two functions so a commercial provider
- * (Mapbox / Google / OpenRouteService) can be swapped in later without
- * touching any screen code.
+ * All sit behind these functions so a commercial provider (Mapbox / Google /
+ * OpenRouteService) can be swapped in later without touching any screen code.
  */
 
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const OSRM = 'https://router.project-osrm.org';
 
-/** Search real-world places by free text. */
+/**
+ * Search real-world places by free text. When the user's location is known,
+ * results are biased toward it and **sorted closest→farthest**, so someone in
+ * New York sees New York (then New Jersey, then farther) — never Europe first.
+ */
 export async function geocodeSearch(query: string, near?: LatLng): Promise<Place[]> {
   const params = new URLSearchParams({
     q: query,
     format: 'jsonv2',
-    limit: '8',
+    limit: '15',
     addressdetails: '1',
   });
   if (near) {
-    // Bias results toward the player's position
-    const d = 0.35;
+    // Bias (not restrict) results toward the user; distance sort does the rest.
+    const d = 0.6;
     params.set('viewbox', `${near.lon - d},${near.lat + d},${near.lon + d},${near.lat - d}`);
   }
   const res = await fetch(`${NOMINATIM}/search?${params}`, {
@@ -32,12 +36,18 @@ export async function geocodeSearch(query: string, near?: LatLng): Promise<Place
   });
   if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
   const rows = (await res.json()) as NominatimRow[];
-  return rows.map((r) => ({
-    id: `osm-${r.place_id}`,
-    name: r.name || r.display_name.split(',')[0],
-    detail: r.display_name,
-    location: { lat: parseFloat(r.lat), lon: parseFloat(r.lon) },
-  }));
+  const places: Place[] = rows.map((r) => {
+    const location = { lat: parseFloat(r.lat), lon: parseFloat(r.lon) };
+    return {
+      id: `osm-${r.place_id}`,
+      name: r.name || r.display_name.split(',')[0],
+      detail: r.display_name,
+      location,
+      distanceMeters: near ? haversineMeters(near, location) : undefined,
+    };
+  });
+  if (near) places.sort((a, b) => (a.distanceMeters ?? 0) - (b.distanceMeters ?? 0));
+  return places.slice(0, 8);
 }
 
 interface NominatimRow {
@@ -48,8 +58,29 @@ interface NominatimRow {
   lon: string;
 }
 
-/** Fetch a real driving route with turn-by-turn steps. */
+/**
+ * Fetch a real route with turn-by-turn steps for the given travel mode.
+ * Driving uses OSRM (fast, reliable) and falls back to Valhalla; walking and
+ * cycling use Valhalla, which supports those profiles.
+ */
 export async function fetchRoute(
+  origin: LatLng,
+  destination: LatLng,
+  destinationName: string,
+  profile: RouteProfile = 'drive',
+): Promise<Route> {
+  if (profile === 'drive') {
+    try {
+      return await fetchOsrmRoute(origin, destination, destinationName);
+    } catch {
+      return fetchValhallaRoute(origin, destination, destinationName, 'drive', flavorInstruction);
+    }
+  }
+  return fetchValhallaRoute(origin, destination, destinationName, profile, flavorInstruction);
+}
+
+/** Driving route via OSRM. */
+async function fetchOsrmRoute(
   origin: LatLng,
   destination: LatLng,
   destinationName: string,
@@ -73,9 +104,10 @@ export async function fetchRoute(
     for (const s of leg.steps) {
       const location: LatLng = { lat: s.maneuver.location[1], lon: s.maneuver.location[0] };
       const proj = projectOntoRoute(location, coords);
+      const kind = maneuverKind(s.maneuver);
       steps.push({
-        instruction: instructionText(s, destinationName),
-        kind: maneuverKind(s.maneuver),
+        instruction: flavorInstruction(kind, s.name || undefined, destinationName, s.maneuver.exit),
+        kind,
         location,
         distanceMeters: s.distance,
         offsetMeters: offsetOfProjection(proj, cumulative, coords),
@@ -143,47 +175,45 @@ function maneuverKind(m: OsrmStep['maneuver']): RouteStep['kind'] {
   }
 }
 
-/** Turn OSRM maneuvers into game-flavored instructions. */
-function instructionText(s: OsrmStep, destinationName: string): string {
-  const road = s.name ? ` onto ${s.name}` : '';
-  const m = s.maneuver;
-  switch (m.type) {
+/**
+ * Game-flavored instruction text keyed on a maneuver kind. Shared by both the
+ * OSRM and Valhalla providers so navigation reads in one voice regardless of
+ * which engine produced the route.
+ */
+export function flavorInstruction(
+  kind: RouteStep['kind'],
+  roadName: string | undefined,
+  destName: string,
+  exit?: number,
+): string {
+  const onto = roadName ? ` onto ${roadName}` : '';
+  const along = roadName ? ` along ${roadName}` : '';
+  switch (kind) {
     case 'depart':
-      return s.name ? `Set out along ${s.name}` : 'Set out on your quest';
+      return roadName ? `Set out along ${roadName}` : 'Set out on your quest';
     case 'arrive':
-      return `You have arrived at ${destinationName}!`;
-    case 'roundabout':
-    case 'rotary':
-      return `At the circle, take exit ${m.exit ?? 1}${road}`;
-    case 'merge':
-      return `Merge${road}`;
-    case 'fork':
-      return m.modifier?.includes('left')
-        ? `Keep left at the fork${road}`
-        : `Keep right at the fork${road}`;
-    case 'on ramp':
-      return `Take the ramp${road}`;
-    case 'off ramp':
-      return `Take the exit${road}`;
-    default:
-      break;
-  }
-  switch (m.modifier) {
+      return `You have arrived at ${destName}!`;
     case 'left':
-      return `Turn left${road}`;
+      return `Turn left${onto}`;
     case 'right':
-      return `Turn right${road}`;
-    case 'slight left':
-      return `Bear left${road}`;
-    case 'slight right':
-      return `Bear right${road}`;
-    case 'sharp left':
-      return `Turn sharp left${road}`;
-    case 'sharp right':
-      return `Turn sharp right${road}`;
+      return `Turn right${onto}`;
+    case 'slight-left':
+      return `Bear left${onto}`;
+    case 'slight-right':
+      return `Bear right${onto}`;
+    case 'sharp-left':
+      return `Turn sharp left${onto}`;
+    case 'sharp-right':
+      return `Turn sharp right${onto}`;
     case 'uturn':
       return 'Turn back the way you came';
+    case 'roundabout':
+      return `At the circle, take exit ${exit ?? 1}${onto}`;
+    case 'merge':
+      return `Merge${onto}`;
+    case 'fork':
+      return `Keep on${along || ' your path'} at the fork`;
     default:
-      return s.name ? `Continue along ${s.name}` : 'Continue onward';
+      return roadName ? `Continue${along}` : 'Continue onward';
   }
 }

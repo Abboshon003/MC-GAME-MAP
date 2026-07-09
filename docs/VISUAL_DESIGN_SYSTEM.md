@@ -1,7 +1,7 @@
-# MC GAME MAP — Visual Design System
+# TerraPath — Visual Design System
 
 > **Product identity:** a real-world navigation app that turns the user's
-> surroundings into a **voxel-style parchment adventure map**.
+> surroundings into a **chunky voxel adventure map**.
 >
 > **The rule:** if an element looks like Apple Maps, Google Maps, Waze,
 > Material Design, or default iOS UI — **redesign it**.
@@ -60,24 +60,27 @@ Buttons read as in-game blocks:
 
 ## 3. Map presentation
 
-The navigation map is an **item the player is holding** — an open parchment
-map — never a Google-Maps pane.
+The map is a **chunky top-down voxel world** built from live OpenStreetMap
+data — never a Google-Maps pane. The real streets, water, parks and buildings
+around the user are diced into terrain blocks.
 
-Visual layers (outermost → innermost):
+Visual layers (bottom → top):
 
 ```
-phone screen
-└─ pixel-style app UI (stone HUD panels)
-   └─ wooden map frame (dirt border)
-      └─ parchment sheet (aged edges, worn corners)
-         └─ blocky terrain decoration
-            └─ route overlay (gold pixel trail)
-               └─ player marker (voxel triangle)
+grass base
+└─ terrain blocks (roads=stone, water=blue, park/forest=green, building=dark stone, sand)
+   └─ route overlay (gold pixel trail + brown outline)
+      └─ destination banner + voxel player triangle
+         └─ business (POI) markers
+            └─ day/night tint
+               └─ pixel HUD panels (search, menu, route)
 ```
 
-Implementation: `src/map/ParchmentMap.tsx` (SVG scene), web-mercator camera
-in `src/map/projection.ts`. Terrain decoration is deterministic per world
-cell so panning is stable.
+Implementation: `src/map/worldData.ts` (Overpass fetch) →
+`src/map/voxelize.ts` (rasterize features into a block grid) →
+`src/map/ParchmentMap.tsx` (SVG scene). Web-mercator camera + block math in
+`src/map/projection.ts`; `useWorldTiles.ts` handles fetch/caching and falls
+back to procedural terrain if the network is unavailable.
 
 ## 4. Navigation marker
 
@@ -109,6 +112,17 @@ pins, never copied game items:
 | favorite | gold **star** |
 
 All are 12×12 pixel grids rendered via `PixelIcon` / `PixelGlyph`.
+
+**Business markers (POIs):** live businesses around the user each get an
+original 12×12 pixel icon (`src/icons/poiIcons.tsx`) — restaurant, cafe, fast
+food, bar, grocery, shop, bank, pharmacy, hospital, school, hotel, fuel,
+worship, gym, park. Tapping one opens a callout to route there.
+
+**Units:** distances are shown in **US customary** (feet / miles) by default.
+
+**Day / night:** a translucent tint over the whole map shifts with the user's
+local clock — bright day, amber dawn/dusk, deep torch-blue night
+(`src/map/daylight.ts`).
 
 ## 7. Menus
 
@@ -171,16 +185,16 @@ no glossy effects.
 ## 11. Main user flow
 
 ```
-Open app
-↓ pixel title/menu               (app/index.tsx)
-↓ search destination             (app/search.tsx — live geocoding)
-↓ app "crafts" route             ("Crafting route…" XP loading)
-↓ parchment map opens            (app/map.tsx)
-↓ user follows blocky gold route (live GPS or demo drive)
-↓ turn instructions in pixel panels (arrow glyph + distance)
+Open app → live voxel map (MapHub, src/screens/MapHub.tsx)
+↓ search (top bar, proximity-sorted) OR tap a business marker
+↓ route preview: distance/ETA + Drive/Walk/Bike toggle
+↓ BEGIN QUEST → camera follows the voxel player (GPS or demo drive)
+↓ turn instructions in pixel panels (arrow glyph + feet/miles)
 ↓ off-route → "Recalculating path…" (live reroute)
 ↓ arrival → "YOU HAVE ARRIVED!" quest-complete panel
 ```
+
+The corner **MENU** button opens Saved Places & the Download Area.
 
 ## 12. Legal originality checklist
 
