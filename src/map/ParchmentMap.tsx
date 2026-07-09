@@ -14,7 +14,10 @@ import {
   visibleCells,
   Viewport,
 } from './projection';
-import { GRASS, TERRAIN_COLORS, type TerrainType, type VoxelGrid } from './voxelize';
+import { GRASS, type TerrainType, type VoxelGrid } from './voxelize';
+import { GRASS_PATTERN, MapTextures, PATTERN } from './textures';
+import { Buildings3D, RoadMarkings, StreetLabels, Trees } from './layers';
+import type { WorldData } from './worldData';
 
 export interface ParchmentMapProps {
   /** Camera is computed by the screen (follow player / fit route). */
@@ -24,10 +27,14 @@ export interface ParchmentMapProps {
   /** Player heading, degrees clockwise from north. */
   heading?: number;
   destination?: LatLng | null;
-  /** Voxelized world features; null → procedural fallback terrain. */
+  /** Voxelized ground grid; null → procedural fallback terrain. */
   world?: VoxelGrid | null;
+  /** Raw vector features for buildings / roads / labels. */
+  features?: WorldData | null;
   /** Day/night color grade drawn over the map. */
   daylight?: Daylight | null;
+  /** full = textures + 3D + trees + labels; lite = flat (while navigating). */
+  detail?: 'full' | 'lite';
   width: number;
   height: number;
 }
@@ -45,7 +52,9 @@ export function ParchmentMap({
   heading = 0,
   destination,
   world,
+  features,
   daylight,
+  detail = 'full',
   width,
   height,
 }: ParchmentMapProps) {
@@ -68,12 +77,26 @@ export function ParchmentMap({
   return (
     <View style={{ width, height, backgroundColor: GRASS, overflow: 'hidden' }}>
       <Svg width={width} height={height}>
-        {/* ——— voxel world blocks (or procedural fallback) ——— */}
+        <MapTextures />
+
+        {/* ——— grass base ——— */}
+        <Rect x={0} y={0} width={width} height={height} fill={`url(#${GRASS_PATTERN})`} />
+
+        {/* ——— ground terrain blocks (textured), or procedural fallback ——— */}
         {world ? (
           <VoxelBlocks world={world} camera={camera} view={view} />
         ) : (
           <TerrainDecor camera={camera} view={view} />
         )}
+
+        {/* ——— road lane markings ——— */}
+        {features && <RoadMarkings world={features} camera={camera} view={view} />}
+
+        {/* ——— trees (browse detail only) ——— */}
+        {world && detail === 'full' && <Trees grid={world} camera={camera} view={view} />}
+
+        {/* ——— 3D buildings ——— */}
+        {features && <Buildings3D world={features} camera={camera} view={view} detail={detail} />}
 
         {/* ——— the route: dark brown outline under a gold pixel trail ——— */}
         {route && (
@@ -121,6 +144,9 @@ export function ParchmentMap({
           <Rect x={0} y={0} width={width} height={height} fill={daylight.tint} opacity={daylight.opacity} />
         )}
 
+        {/* ——— street name labels (above the tint so they stay legible) ——— */}
+        {features && detail === 'full' && <StreetLabels world={features} camera={camera} view={view} />}
+
         {/* ——— compass rose, top-right ——— */}
         <CompassRose x={width - 46} y={14} />
       </Svg>
@@ -141,7 +167,7 @@ function VoxelBlocks({ world, camera, view }: { world: VoxelGrid; camera: MapCam
       const p = projectBlock(bx, by, camera, view);
       if (p.x <= -draw || p.x >= view.width || p.y <= -draw || p.y >= view.height) return;
       out.push(
-        <Rect key={k} x={p.x} y={p.y} width={draw} height={draw} fill={TERRAIN_COLORS[type as TerrainType].face} />,
+        <Rect key={k} x={p.x} y={p.y} width={draw} height={draw} fill={`url(#${PATTERN[type as TerrainType]})`} />,
       );
     });
     return out;

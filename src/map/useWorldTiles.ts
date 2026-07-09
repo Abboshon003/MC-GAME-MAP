@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { haversineMeters } from '@/nav/geo';
 import type { LatLng } from '@/nav/types';
 import type { Poi } from '@/nav/poi';
-import { fetchWorld } from './worldData';
+import { fetchWorld, type WorldData } from './worldData';
 import { voxelize, type VoxelGrid } from './voxelize';
 
 export interface WorldTiles {
   grid: VoxelGrid | null;
+  /** Raw vector features (buildings, roads with names) for the detailed layers. */
+  world: WorldData | null;
   pois: Poi[];
   loading: boolean;
   /** True if the last fetch failed (renderer falls back to procedural terrain). */
@@ -26,6 +28,7 @@ const FETCH_RADIUS_M = 700;
 export function useWorldTiles(player: LatLng | null, enabled = true): WorldTiles {
   const [tiles, setTiles] = useState<WorldTiles>({
     grid: null,
+    world: null,
     pois: [],
     loading: false,
     failed: false,
@@ -50,7 +53,7 @@ export function useWorldTiles(player: LatLng | null, enabled = true): WorldTiles
       try {
         const world = await fetchWorld(player, FETCH_RADIUS_M, ctrl.signal);
         if (ctrl.signal.aborted) return;
-        setTiles({ grid: voxelize(world), pois: world.pois, loading: false, failed: false });
+        setTiles({ grid: voxelize(world), world, pois: world.pois, loading: false, failed: false });
       } catch {
         if (ctrl.signal.aborted) return;
         // Keep any previous grid; just flag failure so the map can fall back.

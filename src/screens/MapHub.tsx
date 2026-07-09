@@ -202,7 +202,9 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
             heading={fix?.heading ?? 0}
             destination={destination?.location ?? null}
             world={tiles.grid}
+            features={tiles.world}
             daylight={daylight}
+            detail={navigating ? 'lite' : 'full'}
             width={mapSize.w}
             height={mapSize.h}
           />
@@ -217,10 +219,23 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
               <Pressable
                 key={p.id}
                 onPress={() => openPoi(p)}
-                style={{ position: 'absolute', left: pos.x - 15, top: pos.y - 15 }}
+                style={{ position: 'absolute', left: pos.x - 15, top: pos.y - 15, flexDirection: 'row', alignItems: 'center' }}
                 hitSlop={6}
               >
                 <PoiIcon category={p.category} size={30} />
+                <View
+                  style={{
+                    marginLeft: 2,
+                    paddingHorizontal: 3,
+                    paddingVertical: 1,
+                    backgroundColor: 'rgba(20,20,20,0.72)',
+                    maxWidth: 96,
+                  }}
+                >
+                  <PixelText variant="tiny" color={colors.textLight} numberOfLines={1}>
+                    {p.name}
+                  </PixelText>
+                </View>
               </Pressable>
             );
           })}

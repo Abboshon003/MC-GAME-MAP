@@ -23,6 +23,7 @@ export interface WorldPolygon {
 export interface WorldRoad {
   klass: RoadClass;
   pts: LatLng[];
+  name?: string;
 }
 export interface WorldData {
   polygons: WorldPolygon[];
@@ -86,7 +87,7 @@ out body geom 2000;`;
     if (el.type === 'way' && el.geometry && el.geometry.length > 1) {
       const pts: LatLng[] = el.geometry.map((g) => ({ lat: g.lat, lon: g.lon }));
       if (tags.highway) {
-        roads.push({ klass: roadClass(tags.highway), pts });
+        roads.push({ klass: roadClass(tags.highway), pts, name: tags.name });
       } else if (tags.natural === 'water' || tags.landuse === 'reservoir' || tags.landuse === 'basin') {
         polygons.push({ kind: 'water', ring: pts });
       } else if (tags.landuse === 'forest' || tags.natural === 'wood') {

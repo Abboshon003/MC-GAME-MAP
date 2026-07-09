@@ -52,8 +52,10 @@ export function voxelize(world: WorldData): VoxelGrid {
     if (!cur || PRIORITY[t] >= PRIORITY[cur]) blocks.set(k, t);
   };
 
-  // — polygons: scanline fill in block space —
+  // — polygons: scanline fill in block space. Buildings are NOT rasterized
+  //   here; they are drawn as extruded 3D prisms from their vector footprints. —
   for (const poly of world.polygons) {
+    if (poly.kind === 'building') continue;
     const t: TerrainType = poly.kind;
     const ring = poly.ring.map(toBlockXY);
     fillPolygon(ring, (bx, by) => set(bx, by, t));

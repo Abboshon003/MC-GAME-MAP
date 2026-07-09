@@ -43,6 +43,13 @@ Design / default iOS — redesign it.** Full rules live in
 - `src/map/ParchmentMap.tsx` draws the grass base, terrain blocks, the gold
   route (brown outline), the voxel player triangle, the destination banner,
   and a **day/night tint** (`src/map/daylight.ts`).
+- **Richer visual layers** (`src/map/textures.tsx`, `src/map/layers.tsx`):
+  pixel textures (grass tufts, asphalt, water waves, cobble/plank/brick roofs)
+  via SVG `<Pattern>`; **pseudo-3D buildings** extruded from footprints
+  (shadow + walls + textured roof); **tree** sprites scattered on greens;
+  dashed **lane markings** on major roads; rotated **street-name labels**.
+  A `detail` flag renders full richness while browsing and a flat "lite"
+  style while navigating (keeps the frame rate up).
 - Block math (`BLOCK_ZOOM`, `projectBlock`, `blockScreenSize`) lives in
   `src/map/projection.ts`.
 
