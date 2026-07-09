@@ -84,7 +84,7 @@ Design / default iOS — redesign it.** Full rules live in
 tap-to-route, walk/drive/bike, day/night, US units, TerraPath rename — on top of
 M1's design system + live turn-by-turn.
 
-**Roadmap:** fog-of-war exploration, placeable map banners, XP/distance leveling,
+**Roadmap:** placeable map banners, XP/distance leveling,
 biome theming, persisted saved places + real offline downloads (AsyncStorage),
 original SFX pack, voice guidance, vector-tile basemap (perf upgrade over
 Overpass), production routing/geocoding keys.
