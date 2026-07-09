@@ -9,7 +9,15 @@ import type { WorldData } from './worldData';
  * these.
  */
 
-export type TerrainType = 'water' | 'park' | 'forest' | 'building' | 'road' | 'road_major' | 'sand';
+export type TerrainType =
+  | 'water'
+  | 'park'
+  | 'forest'
+  | 'building'
+  | 'road'
+  | 'road_major'
+  | 'sidewalk'
+  | 'sand';
 
 export interface VoxelGrid {
   /** key "bx,by" → terrain type (grass is implicit / absent). */
@@ -27,6 +35,7 @@ export const TERRAIN_COLORS: Record<TerrainType, { face: string; shade: string }
   building: { face: colors.stoneDark, shade: '#4A4A4A' },
   road: { face: colors.stone, shade: colors.stoneDark },
   road_major: { face: '#A6A6A6', shade: colors.stone },
+  sidewalk: { face: '#B9B9B0', shade: '#9C9C94' },
   sand: { face: colors.sand, shade: '#C4AF74' },
 };
 
@@ -37,6 +46,7 @@ const PRIORITY: Record<TerrainType, number> = {
   sand: 2,
   water: 3,
   building: 4,
+  sidewalk: 4.5,
   road: 5,
   road_major: 6,
 };
@@ -61,12 +71,16 @@ export function voxelize(world: WorldData): VoxelGrid {
     fillPolygon(ring, (bx, by) => set(bx, by, t));
   }
 
-  // — roads: stamp lines with a class-dependent half-width —
+  // — roads: stamp a sidewalk strip first, then the asphalt over it, so
+  //   drivable roads read with light curbs like an aerial photo —
   for (const road of world.roads) {
     const t: TerrainType = road.klass === 'major' ? 'road_major' : 'road';
-    const half = road.klass === 'major' ? 1 : road.klass === 'minor' ? 0 : 0;
+    const half = road.klass === 'major' ? 1 : 0;
     const pts = road.pts.map(toBlockXY);
     for (let i = 1; i < pts.length; i++) {
+      if (road.klass !== 'path') {
+        stampLine(pts[i - 1], pts[i], half + 1, (bx, by) => set(bx, by, 'sidewalk'));
+      }
       stampLine(pts[i - 1], pts[i], half, (bx, by) => set(bx, by, t));
     }
   }

@@ -19,6 +19,7 @@ export const PATTERN: Record<TerrainType, string> = {
   building: 'tx-roofPlanks', // buildings are drawn as 3D prisms; unused here
   road: 'tx-asphalt',
   road_major: 'tx-asphaltMajor',
+  sidewalk: 'tx-sidewalk',
   sand: 'tx-sand',
 };
 
@@ -83,6 +84,13 @@ export function MapTextures() {
         <Rect width={12} height={8} fill="#4A7BA6" />
         <Rect x={1} y={2} width={4} height={1} fill="#5B8CB6" />
         <Rect x={7} y={5} width={4} height={1} fill="#3E6C94" />
+      </Pattern>
+      {/* sidewalk — pale concrete with joint lines */}
+      <Pattern id="tx-sidewalk" width={10} height={10} patternUnits="userSpaceOnUse">
+        <Rect width={10} height={10} fill="#B9B9B0" />
+        <Rect x={0} y={0} width={10} height={1} fill="#A8A89F" />
+        <Rect x={4} y={0} width={1} height={10} fill="#ADADA4" />
+        <Rect x={7} y={6} width={1} height={1} fill="#C4C4BB" />
       </Pattern>
       {/* sand */}
       <Pattern id="tx-sand" width={8} height={8} patternUnits="userSpaceOnUse">

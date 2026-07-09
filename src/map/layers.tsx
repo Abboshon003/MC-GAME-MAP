@@ -36,39 +36,110 @@ export function Buildings3D({
   // Nearest-to-center first, capped for performance.
   const drawn = buildings
     .map((b) => {
-      const pts = projectRing(b.ring, camera, view);
+      const pts = projectRing(dedupeRing(b.ring), camera, view);
       const bb = bounds(pts);
       return { b, pts, bb, d: Math.hypot(bb.cx - view.width / 2, bb.cy - view.height / 2) };
     })
     .filter(({ bb }) => bb.maxX > -30 && bb.minX < view.width + 30 && bb.maxY > -30 && bb.minY < view.height + 30)
     .sort((a, b) => a.d - b.d)
-    .slice(0, detail === 'full' ? 70 : 45);
+    .slice(0, detail === 'full' ? 90 : 50);
 
   const out: React.ReactElement[] = [];
   for (const { b, pts } of drawn) {
     const h = hashOf(b.ring[0]);
     const roof = roofPattern(h);
-    const height = detail === 'full' ? 12 + (h % 3) * 4 : 0;
     const key = `b${h}`;
+    const lift = detail === 'full' ? 4 + (h % 3) * 2 : 0;
+    const roofPts = lift ? shift(pts, 0, -lift) : pts;
 
-    if (detail === 'full' && height > 0) {
-      const roofPts = shift(pts, 0, -height);
-      // shadow
-      out.push(<Polygon key={`${key}s`} points={ptsStr(shift(pts, height * 0.5, height * 0.5))} fill="#000000" opacity={0.2} />);
-      // walls (one quad per footprint edge)
+    // drop shadow (sun from top-left)
+    out.push(
+      <Polygon key={`${key}s`} points={ptsStr(shift(pts, 3 + lift * 0.4, 3 + lift * 0.4))} fill="#000000" opacity={0.22} />,
+    );
+    // low walls
+    if (lift) {
       const wc = wallColor(roof);
       for (let i = 0; i < pts.length - 1; i++) {
-        const quad = [pts[i], pts[i + 1], roofPts[i + 1], roofPts[i]];
-        out.push(<Polygon key={`${key}w${i}`} points={ptsStr(quad)} fill={wc} stroke="#000000" strokeOpacity={0.15} strokeWidth={0.5} />);
+        out.push(
+          <Polygon key={`${key}w${i}`} points={ptsStr([pts[i], pts[i + 1], roofPts[i + 1], roofPts[i]])} fill={wc} stroke="#000000" strokeOpacity={0.2} strokeWidth={0.5} />,
+        );
       }
-      // roof
-      out.push(<Polygon key={`${key}r`} points={ptsStr(roofPts)} fill={`url(#${roof})`} stroke="#1E1E1E" strokeOpacity={0.4} strokeWidth={1} />);
+    }
+
+    if (pts.length === 5 || pts.length === 4) {
+      // rectangular house → gable roof seen from above: two shaded halves + ridge
+      out.push(<GableRoof key={`${key}g`} pts={roofPts} roof={roof} hash={h} />);
     } else {
-      // lite: flat textured footprint
-      out.push(<Polygon key={`${key}f`} points={ptsStr(pts)} fill={`url(#${roof})`} stroke="#1E1E1E" strokeOpacity={0.35} strokeWidth={1} />);
+      // complex footprint → flat textured roof with parapet + vents
+      out.push(
+        <Polygon key={`${key}r`} points={ptsStr(roofPts)} fill={`url(#${roof})`} stroke="#1E1E1E" strokeOpacity={0.5} strokeWidth={1.5} />,
+      );
+      const bb = bounds(roofPts);
+      if (detail === 'full' && (bb.maxX - bb.minX) > 26) {
+        out.push(
+          <Rect key={`${key}v1`} x={bb.cx - 5} y={bb.cy - 3} width={5} height={5} fill="#6E6E6E" stroke="#4A4A4A" strokeWidth={1} />,
+          <Rect key={`${key}v2`} x={bb.cx + 3} y={bb.cy + 1} width={4} height={4} fill="#7B7B7B" stroke="#4A4A4A" strokeWidth={1} />,
+        );
+      }
     }
   }
   return <G>{out}</G>;
+}
+
+/** Drop a duplicated closing point so a rectangle reads as 4 corners + close. */
+function dedupeRing(ring: LatLng[]): LatLng[] {
+  const a = ring[0];
+  const z = ring[ring.length - 1];
+  if (ring.length > 3 && Math.abs(a.lat - z.lat) < 1e-9 && Math.abs(a.lon - z.lon) < 1e-9) {
+    return ring;
+  }
+  return [...ring, a];
+}
+
+/**
+ * Aerial-view gable roof for a (roughly) rectangular footprint: a ridge line
+ * along the long axis with a sunlit half and a shaded half — the classic
+ * Minecraft-house-from-above read.
+ */
+function GableRoof({ pts, roof, hash }: { pts: Pt[]; roof: string; hash: number }) {
+  const [c0, c1, c2, c3] = pts;
+  const e01 = Math.hypot(c1.x - c0.x, c1.y - c0.y);
+  const e12 = Math.hypot(c2.x - c1.x, c2.y - c1.y);
+  // ridge runs parallel to the longer edge pair
+  const longFirst = e01 >= e12;
+  const r0: Pt = longFirst
+    ? { x: (c0.x + c3.x) / 2, y: (c0.y + c3.y) / 2 }
+    : { x: (c0.x + c1.x) / 2, y: (c0.y + c1.y) / 2 };
+  const r1: Pt = longFirst
+    ? { x: (c1.x + c2.x) / 2, y: (c1.y + c2.y) / 2 }
+    : { x: (c3.x + c2.x) / 2, y: (c3.y + c2.y) / 2 };
+  const halfA: Pt[] = longFirst ? [c0, c1, r1, r0] : [c0, r0, r1, c3];
+  const halfB: Pt[] = longFirst ? [r0, r1, c2, c3] : [r0, c1, c2, r1];
+
+  // sun from top-left: the half whose centroid sits higher-left is lit
+  const litA = bounds(halfA).cy + bounds(halfA).cx <= bounds(halfB).cy + bounds(halfB).cx;
+  const chimney = hash % 3 === 0;
+  const ct = 0.3 + (hash % 5) * 0.1;
+  const cx = r0.x + (r1.x - r0.x) * ct;
+  const cy = r0.y + (r1.y - r0.y) * ct;
+
+  return (
+    <G>
+      <Polygon points={ptsStr(halfA)} fill={`url(#${roof})`} />
+      <Polygon points={ptsStr(halfA)} fill={litA ? '#FFFFFF' : '#000000'} opacity={litA ? 0.14 : 0.2} />
+      <Polygon points={ptsStr(halfB)} fill={`url(#${roof})`} />
+      <Polygon points={ptsStr(halfB)} fill={litA ? '#000000' : '#FFFFFF'} opacity={litA ? 0.2 : 0.14} />
+      {/* eaves + ridge */}
+      <Polygon points={ptsStr(pts)} fill="none" stroke="#1E1E1E" strokeOpacity={0.55} strokeWidth={1.5} />
+      <Polyline points={ptsStr([r0, r1])} fill="none" stroke="#2A1D10" strokeOpacity={0.7} strokeWidth={2} />
+      {chimney && (
+        <G>
+          <Rect x={cx - 3} y={cy - 3} width={6} height={6} fill="#6E6E6E" stroke="#3A3A3A" strokeWidth={1} />
+          <Rect x={cx - 1.5} y={cy - 1.5} width={3} height={3} fill="#2B2B2B" />
+        </G>
+      )}
+    </G>
+  );
 }
 
 /* ————————————————————————— trees ————————————————————————— */
