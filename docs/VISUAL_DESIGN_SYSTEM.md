@@ -60,11 +60,18 @@ Buttons read as in-game blocks:
 
 ## 3. Map presentation
 
-The map is a **tilted isometric voxel world** built from live OpenStreetMap
-data — never a Google-Maps pane. While browsing, the world renders in a fixed
-2.5D iso camera: volumetric buildings (walls + pitched gable roofs with lit and
-shaded planes), voxel trees, and directional shadows, all depth-sorted. During
-turn-by-turn navigation the map flattens to top-down for readability.
+The map is a **2D aerial voxel world** built from live OpenStreetMap data —
+never a Google-Maps pane. Buildings draw as Minecraft rooftops seen from above:
+pitched gable and hip roofs with a sunlit and a shaded plane, ridge lines,
+eaves, chimneys and the odd gold skylight; large footprints read as flat city
+roofs with parapets and vents. Blocky trees fill parks; every volume casts a
+hard drop shadow.
+
+**Interaction follows Google/Apple Maps UX (with Minecraft UI):** drag to pan
+anywhere, pinch (or the +/− block buttons) to zoom, and a compass recenter
+block appears whenever the camera leaves follow mode. World data loads around
+wherever the camera looks. During a gesture the map moves as a frozen image
+and the camera commits on release, so panning stays smooth.
 
 Visual layers (bottom → top):
 

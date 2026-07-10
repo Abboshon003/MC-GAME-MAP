@@ -128,68 +128,60 @@ export function projectBlock(
 }
 
 /* ————————————————————————————————————————————————————————————————
- * Projector: one function that maps geography (+ height) to screen px,
- * in either flat top-down or fixed isometric (2.5D) view.
- *
- * Iso transform: rotate the world plane 45° and squash vertically —
- * the classic "tilted voxel world" camera. `z` is screen-px height
- * (buildings, tree canopies) and simply lifts the point up-screen.
+ * Projector + camera math for the interactive 2D aerial map.
  * ———————————————————————————————————————————————————————————————— */
 
-export type Projector = (p: LatLng, z?: number) => { x: number; y: number };
+export type Projector = (p: LatLng) => { x: number; y: number };
 
-const ISO_ROT = Math.SQRT1_2; // cos/sin 45°
-const ISO_SQUASH = 0.58;
-
-/** Transform camera-relative flat px (dx, dy) into view px. */
-export function viewXY(
-  dx: number,
-  dy: number,
-  view: Viewport,
-  iso: boolean,
-  z = 0,
-): { x: number; y: number } {
-  if (!iso) {
-    return { x: dx + view.width / 2, y: dy + view.height / 2 - z };
-  }
-  return {
-    x: (dx - dy) * ISO_ROT + view.width / 2,
-    y: (dx + dy) * ISO_ROT * ISO_SQUASH + view.height / 2 - z,
-  };
-}
-
-/** Build a projector for the camera/view in the given mode. */
-export function makeProjector(camera: MapCamera, view: Viewport, iso: boolean): Projector {
+/** Build a fast geography → screen-px projector for the camera/view. */
+export function makeProjector(camera: MapCamera, view: Viewport): Projector {
   const cx = worldX(camera.center.lon, camera.zoom);
   const cy = worldY(camera.center.lat, camera.zoom);
-  return (p: LatLng, z = 0) =>
-    viewXY(worldX(p.lon, camera.zoom) - cx, worldY(p.lat, camera.zoom) - cy, view, iso, z);
+  return (p: LatLng) => ({
+    x: worldX(p.lon, camera.zoom) - cx + view.width / 2,
+    y: worldY(p.lat, camera.zoom) - cy + view.height / 2,
+  });
 }
 
-/** Screen position of a block-grid corner (bx, by) with optional height. */
-export function projectBlockCorner(
-  bx: number,
-  by: number,
+/** Inverse: which geographic point sits under a screen pixel. */
+export function screenToGeo(
+  pt: { x: number; y: number },
   camera: MapCamera,
   view: Viewport,
-  iso: boolean,
-  z = 0,
-): { x: number; y: number } {
-  const scale = 2 ** (camera.zoom - BLOCK_ZOOM);
-  return viewXY(
-    (bx * BLOCK - worldX(camera.center.lon, BLOCK_ZOOM)) * scale,
-    (by * BLOCK - worldY(camera.center.lat, BLOCK_ZOOM)) * scale,
-    view,
-    iso,
-    z,
-  );
+): LatLng {
+  const size = TILE * 2 ** camera.zoom;
+  const wx = worldX(camera.center.lon, camera.zoom) + (pt.x - view.width / 2);
+  const wy = worldY(camera.center.lat, camera.zoom) + (pt.y - view.height / 2);
+  const lon = (wx / size) * 360 - 180;
+  const n = Math.PI - (2 * Math.PI * wy) / size;
+  const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  return { lat, lon };
 }
 
-/** Screen angle (deg, clockwise from up) that world-north maps to. */
-export function northScreenAngle(iso: boolean): number {
-  if (!iso) return 0;
-  const n = viewXY(0, -1, { width: 0, height: 0 }, true);
-  return (Math.atan2(n.x, -n.y) * 180) / Math.PI;
+/**
+ * Commit a finished pan/pinch gesture to a new camera. The gesture applied
+ * `translate(tx, ty)` then `scale(s)` (about the view center) to the frozen
+ * map image; the new camera reproduces that framing for real. Google-Maps
+ * feel: whatever the fingers left under the middle of the screen stays there.
+ */
+export function cameraAfterGesture(
+  camera: MapCamera,
+  view: Viewport,
+  tx: number,
+  ty: number,
+  s: number,
+  minZoom = 13,
+  maxZoom = 18.75,
+): MapCamera {
+  const zoom = Math.max(minZoom, Math.min(maxZoom, camera.zoom + Math.log2(s)));
+  const applied = 2 ** (zoom - camera.zoom);
+  // The view-center pixel, mapped back through the gesture transform,
+  // tells us which pre-gesture screen point should become the new center.
+  const cx = view.width / 2;
+  const cy = view.height / 2;
+  const px = cx + (0 - tx) / applied;
+  const py = cy + (0 - ty) / applied;
+  return { center: screenToGeo({ x: px, y: py }, camera, view), zoom };
 }
 
 /** Deterministic 2D hash → 0..1 (stable terrain decoration per cell). */

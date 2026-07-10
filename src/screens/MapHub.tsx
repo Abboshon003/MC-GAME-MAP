@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { PanResponder, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   BlockButton,
@@ -12,11 +12,17 @@ import {
   TurnArrow,
   XPProgressBar,
 } from '@/components';
-import { PoiIcon } from '@/icons';
+import { CompassIcon, PoiIcon } from '@/icons';
 import { ParchmentMap } from '@/map/ParchmentMap';
 import { daylightFor } from '@/map/daylight';
 import { useWorldTiles } from '@/map/useWorldTiles';
-import { fitBounds, makeProjector, type MapCamera, type Viewport } from '@/map/projection';
+import {
+  cameraAfterGesture,
+  fitBounds,
+  makeProjector,
+  type MapCamera,
+  type Viewport,
+} from '@/map/projection';
 import {
   fetchRoute,
   formatDistance,
@@ -33,8 +39,19 @@ import { play } from '@/sound/sounds';
 
 /** Fallback when GPS is denied/unavailable — NYC. Demo drive uses it too. */
 const FALLBACK: LatLng = { lat: 40.758, lon: -73.9855 };
-/** Camera zoom for browsing/following — keeps blocks chunky. */
+
+/** Small self-contained chip style for terrain status messages. */
+const statusChip = {
+  alignSelf: 'center' as const,
+  marginTop: 6,
+  paddingHorizontal: 8,
+  paddingVertical: 3,
+  backgroundColor: 'rgba(20,20,20,0.78)',
+};
+/** Camera zoom for browsing — keeps blocks chunky. */
 const WORLD_ZOOM = 17;
+/** Camera zoom while navigating (slightly wider for context). */
+const NAV_ZOOM = 16;
 
 /**
  * The whole app in one screen: a live voxel world you can browse, search over,
@@ -64,8 +81,10 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
   const demoFix = useDemoDrive(route, navigating && !liveLoc);
   const fix = liveLoc ? gpsFix : demoFix;
 
-  // — live world tiles around the player —
-  const tiles = useWorldTiles(browseCenter);
+  // — free camera: null = follow (GPS / route fit); set = user panned/zoomed —
+  const [freeCam, setFreeCam] = useState<MapCamera | null>(null);
+  // live gesture transform applied to the frozen map (cheap), committed on release
+  const [gestureXf, setGestureXf] = useState({ tx: 0, ty: 0, s: 1 });
 
   // — day/night clock —
   useEffect(() => {
@@ -135,14 +154,96 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
     }
   }, [nav?.arrived]);
 
-  // — camera —
+  // — camera: user gestures win; otherwise follow GPS / fit the route —
   const view: Viewport = { width: mapSize.w, height: mapSize.h };
   const camera: MapCamera = useMemo(() => {
+    if (freeCam) return freeCam;
     if (route && !navigating && mapSize.w > 0) return fitBounds(route.coords, view, 60);
-    const center = navigating && nav ? nav.snapped : browseCenter;
-    return { center, zoom: WORLD_ZOOM };
+    if (navigating && nav) return { center: nav.snapped, zoom: NAV_ZOOM };
+    return { center: browseCenter, zoom: WORLD_ZOOM };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route, navigating, nav?.snapped?.lat, nav?.snapped?.lon, browseCenter.lat, browseCenter.lon, mapSize.w, mapSize.h]);
+  }, [freeCam, route, navigating, nav?.snapped?.lat, nav?.snapped?.lon, browseCenter.lat, browseCenter.lon, mapSize.w, mapSize.h]);
+
+  // — live world tiles around wherever the camera looks (pan → new area loads) —
+  const tiles = useWorldTiles(mapSize.w > 0 ? camera.center : browseCenter);
+
+  // — pan / pinch gestures (Google-Maps feel): transform the frozen map
+  //   during the gesture, commit a real camera move on release —
+  const gestureRef = useRef({ tx: 0, ty: 0, s: 1, mid0: null as null | { x: number; y: number }, dist0: 0, base: { tx: 0, ty: 0, s: 1 } });
+  const camRef = useRef(camera);
+  camRef.current = camera;
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_e, g) =>
+          Math.abs(g.dx) + Math.abs(g.dy) > 6 || g.numberActiveTouches === 2,
+        onPanResponderGrant: () => {
+          gestureRef.current = { tx: 0, ty: 0, s: 1, mid0: null, dist0: 0, base: { tx: 0, ty: 0, s: 1 } };
+        },
+        onPanResponderMove: (e, g) => {
+          const cur = gestureRef.current;
+          const touches = e.nativeEvent.touches;
+          if (touches.length >= 2) {
+            const [a, b] = touches;
+            const mid = { x: (a.pageX + b.pageX) / 2, y: (a.pageY + b.pageY) / 2 };
+            const dist = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
+            if (!cur.mid0 || cur.dist0 === 0) {
+              // pinch segment starts: rebase on current transform
+              cur.mid0 = mid;
+              cur.dist0 = dist;
+              cur.base = { tx: cur.tx, ty: cur.ty, s: cur.s };
+              return;
+            }
+            const cx = viewRef.current.width / 2;
+            const cy = viewRef.current.height / 2;
+            const s = Math.max(0.35, Math.min(3, cur.base.s * (dist / cur.dist0)));
+            const k = s / cur.base.s;
+            cur.s = s;
+            // keep the world point under the fingers anchored to the midpoint
+            cur.tx = mid.x - cur.mid0.x + cur.base.tx + (cur.mid0.x - cx - cur.base.tx) * (1 - k);
+            cur.ty = mid.y - cur.mid0.y + cur.base.ty + (cur.mid0.y - cy - cur.base.ty) * (1 - k);
+          } else {
+            // one-finger drag; if we just came out of a pinch, rebase
+            if (cur.mid0) {
+              cur.mid0 = null;
+              cur.dist0 = 0;
+              cur.base = { tx: cur.tx - g.dx, ty: cur.ty - g.dy, s: cur.s };
+            }
+            cur.tx = cur.base.tx + g.dx;
+            cur.ty = cur.base.ty + g.dy;
+          }
+          setGestureXf({ tx: cur.tx, ty: cur.ty, s: cur.s });
+        },
+        onPanResponderRelease: () => commitGesture(),
+        onPanResponderTerminate: () => commitGesture(),
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const commitGesture = () => {
+    const { tx, ty, s } = gestureRef.current;
+    if (Math.abs(tx) < 2 && Math.abs(ty) < 2 && Math.abs(s - 1) < 0.02) {
+      setGestureXf({ tx: 0, ty: 0, s: 1 });
+      return;
+    }
+    setFreeCam(cameraAfterGesture(camRef.current, viewRef.current, tx, ty, s));
+    setGestureXf({ tx: 0, ty: 0, s: 1 });
+    gestureRef.current = { tx: 0, ty: 0, s: 1, mid0: null, dist0: 0, base: { tx: 0, ty: 0, s: 1 } };
+  };
+
+  const zoomBy = (factor: number) => {
+    play('button-click');
+    setFreeCam(cameraAfterGesture(camRef.current, viewRef.current, 0, 0, factor));
+  };
+  const recenter = () => {
+    play('wood-tap');
+    setFreeCam(null);
+  };
 
   // — nearest POIs to show as tappable markers (browse only) —
   const nearbyPois = useMemo(() => {
@@ -158,6 +259,7 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
   const chooseDestination = (place: Place) => {
     setSelectedPoi(null);
     setNavigating(false);
+    setFreeCam(null); // snap to the route overview
     arrivedSound.current = false;
     setDestination(place);
   };
@@ -172,11 +274,13 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
   };
   const beginQuest = () => {
     arrivedSound.current = false;
+    setFreeCam(null); // follow the player
     setNavigating(true);
     play('map-scribble');
   };
   const clearRoute = () => {
     setNavigating(false);
+    setFreeCam(null);
     setRoute(null);
     setDestination(null);
     setSelectedPoi(null);
@@ -189,57 +293,73 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.charcoal }}>
-      {/* ——— full-bleed voxel map ——— */}
+      {/* ——— full-bleed voxel map with pan/pinch ——— */}
       <View
-        style={{ flex: 1 }}
+        style={{ flex: 1, overflow: 'hidden' }}
         onLayout={(e) => setMapSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+        {...panResponder.panHandlers}
       >
-        {mapSize.w > 0 && (
-          <ParchmentMap
-            camera={camera}
-            route={route}
-            player={navigating && nav ? nav.snapped : browseCenter}
-            heading={fix?.heading ?? 0}
-            destination={destination?.location ?? null}
-            world={tiles.grid}
-            features={tiles.world}
-            daylight={daylight}
-            detail={navigating ? 'lite' : 'full'}
-            width={mapSize.w}
-            height={mapSize.h}
-          />
-        )}
+        {/* Gesture layer: the map + markers move together as one frozen
+            image during a gesture; the camera commits on release. */}
+        <View
+          style={{
+            flex: 1,
+            transform: [
+              { translateX: gestureXf.tx },
+              { translateY: gestureXf.ty },
+              { scale: gestureXf.s },
+            ],
+          }}
+        >
+          {mapSize.w > 0 && (
+            <ParchmentMap
+              camera={camera}
+              route={route}
+              player={navigating && nav ? nav.snapped : browseCenter}
+              heading={fix?.heading ?? 0}
+              destination={destination?.location ?? null}
+              world={tiles.grid}
+              features={tiles.world}
+              daylight={daylight}
+              detail={navigating ? 'lite' : 'full'}
+              width={mapSize.w}
+              height={mapSize.h}
+            />
+          )}
 
-        {/* ——— tappable business markers ——— */}
-        {mapSize.w > 0 &&
-          nearbyPois.map(({ p }) => {
-            // must match the map's projector (iso while browsing)
-            const pos = makeProjector(camera, view, !navigating)(p.location);
-            if (pos.x < -20 || pos.x > mapSize.w + 20 || pos.y < -20 || pos.y > mapSize.h + 20) return null;
-            return (
-              <Pressable
-                key={p.id}
-                onPress={() => openPoi(p)}
-                style={{ position: 'absolute', left: pos.x - 15, top: pos.y - 15, flexDirection: 'row', alignItems: 'center' }}
-                hitSlop={6}
-              >
-                <PoiIcon category={p.category} size={30} />
-                <View
-                  style={{
-                    marginLeft: 2,
-                    paddingHorizontal: 3,
-                    paddingVertical: 1,
-                    backgroundColor: 'rgba(20,20,20,0.72)',
-                    maxWidth: 96,
-                  }}
-                >
-                  <PixelText variant="tiny" color={colors.textLight} numberOfLines={1}>
-                    {p.name}
-                  </PixelText>
-                </View>
-              </Pressable>
-            );
-          })}
+          {/* ——— tappable business markers (same projector as the map) ——— */}
+          {mapSize.w > 0 &&
+            (() => {
+              const proj = makeProjector(camera, view);
+              return nearbyPois.map(({ p }) => {
+                const pos = proj(p.location);
+                if (pos.x < -20 || pos.x > mapSize.w + 20 || pos.y < -20 || pos.y > mapSize.h + 20) return null;
+                return (
+                  <Pressable
+                    key={p.id}
+                    onPress={() => openPoi(p)}
+                    style={{ position: 'absolute', left: pos.x - 15, top: pos.y - 15, flexDirection: 'row', alignItems: 'center' }}
+                    hitSlop={6}
+                  >
+                    <PoiIcon category={p.category} size={30} />
+                    <View
+                      style={{
+                        marginLeft: 2,
+                        paddingHorizontal: 3,
+                        paddingVertical: 1,
+                        backgroundColor: 'rgba(20,20,20,0.72)',
+                        maxWidth: 96,
+                      }}
+                    >
+                      <PixelText variant="tiny" color={colors.textLight} numberOfLines={1}>
+                        {p.name}
+                      </PixelText>
+                    </View>
+                  </Pressable>
+                );
+              });
+            })()}
+        </View>
 
         {/* ——— reroute overlay ——— */}
         {rerouting && (
@@ -251,6 +371,31 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
             </PixelPanel>
           </View>
         )}
+
+        {/* ——— map controls: zoom blocks + recenter (Google-Maps UX) ——— */}
+        <View style={{ position: 'absolute', right: spacing.sm, bottom: spacing.xl * 3 }}>
+          <BlockButton title="+" compact onPress={() => zoomBy(1.6)} />
+          <BlockButton title="-" compact style={{ marginTop: spacing.xs }} onPress={() => zoomBy(1 / 1.6)} />
+          {freeCam && (
+            <Pressable
+              onPress={recenter}
+              accessibilityRole="button"
+              accessibilityLabel="Recenter"
+              style={{ marginTop: spacing.sm, alignItems: 'center' }}
+            >
+              <View
+                style={{
+                  backgroundColor: colors.panelStone,
+                  borderWidth: 3,
+                  borderColor: colors.buttonBorder,
+                  padding: 4,
+                }}
+              >
+                <CompassIcon size={30} />
+              </View>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       {/* ——— top: corner menu + search ——— */}
@@ -261,6 +406,17 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
             {!navigating && <SearchOverlay near={liveLoc} onSelect={chooseDestination} />}
           </View>
         </View>
+        {/* terrain status chip — makes a blank map diagnosable at a glance */}
+        {tiles.loading && !tiles.grid && (
+          <PixelText variant="tiny" color={colors.textLight} style={statusChip}>
+            Generating chunks…
+          </PixelText>
+        )}
+        {tiles.failed && !tiles.grid && !tiles.loading && (
+          <PixelText variant="tiny" color={colors.dangerRed} style={statusChip}>
+            TERRAIN DATA UNAVAILABLE — CHECK CONNECTION
+          </PixelText>
+        )}
       </View>
 
       {/* ——— bottom HUD ——— */}
