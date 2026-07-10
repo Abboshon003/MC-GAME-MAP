@@ -16,7 +16,7 @@ import { PoiIcon } from '@/icons';
 import { ParchmentMap } from '@/map/ParchmentMap';
 import { daylightFor } from '@/map/daylight';
 import { useWorldTiles } from '@/map/useWorldTiles';
-import { fitBounds, project, type MapCamera, type Viewport } from '@/map/projection';
+import { fitBounds, makeProjector, type MapCamera, type Viewport } from '@/map/projection';
 import {
   fetchRoute,
   formatDistance,
@@ -213,7 +213,8 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
         {/* ——— tappable business markers ——— */}
         {mapSize.w > 0 &&
           nearbyPois.map(({ p }) => {
-            const pos = project(p.location, camera, view);
+            // must match the map's projector (iso while browsing)
+            const pos = makeProjector(camera, view, !navigating)(p.location);
             if (pos.x < -20 || pos.x > mapSize.w + 20 || pos.y < -20 || pos.y > mapSize.h + 20) return null;
             return (
               <Pressable

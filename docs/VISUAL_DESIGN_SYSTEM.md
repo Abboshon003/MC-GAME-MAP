@@ -60,9 +60,11 @@ Buttons read as in-game blocks:
 
 ## 3. Map presentation
 
-The map is a **chunky top-down voxel world** built from live OpenStreetMap
-data — never a Google-Maps pane. The real streets, water, parks and buildings
-around the user are diced into terrain blocks.
+The map is a **tilted isometric voxel world** built from live OpenStreetMap
+data — never a Google-Maps pane. While browsing, the world renders in a fixed
+2.5D iso camera: volumetric buildings (walls + pitched gable roofs with lit and
+shaded planes), voxel trees, and directional shadows, all depth-sorted. During
+turn-by-turn navigation the map flattens to top-down for readability.
 
 Visual layers (bottom → top):
 

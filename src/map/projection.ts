@@ -127,6 +127,71 @@ export function projectBlock(
   };
 }
 
+/* ————————————————————————————————————————————————————————————————
+ * Projector: one function that maps geography (+ height) to screen px,
+ * in either flat top-down or fixed isometric (2.5D) view.
+ *
+ * Iso transform: rotate the world plane 45° and squash vertically —
+ * the classic "tilted voxel world" camera. `z` is screen-px height
+ * (buildings, tree canopies) and simply lifts the point up-screen.
+ * ———————————————————————————————————————————————————————————————— */
+
+export type Projector = (p: LatLng, z?: number) => { x: number; y: number };
+
+const ISO_ROT = Math.SQRT1_2; // cos/sin 45°
+const ISO_SQUASH = 0.58;
+
+/** Transform camera-relative flat px (dx, dy) into view px. */
+export function viewXY(
+  dx: number,
+  dy: number,
+  view: Viewport,
+  iso: boolean,
+  z = 0,
+): { x: number; y: number } {
+  if (!iso) {
+    return { x: dx + view.width / 2, y: dy + view.height / 2 - z };
+  }
+  return {
+    x: (dx - dy) * ISO_ROT + view.width / 2,
+    y: (dx + dy) * ISO_ROT * ISO_SQUASH + view.height / 2 - z,
+  };
+}
+
+/** Build a projector for the camera/view in the given mode. */
+export function makeProjector(camera: MapCamera, view: Viewport, iso: boolean): Projector {
+  const cx = worldX(camera.center.lon, camera.zoom);
+  const cy = worldY(camera.center.lat, camera.zoom);
+  return (p: LatLng, z = 0) =>
+    viewXY(worldX(p.lon, camera.zoom) - cx, worldY(p.lat, camera.zoom) - cy, view, iso, z);
+}
+
+/** Screen position of a block-grid corner (bx, by) with optional height. */
+export function projectBlockCorner(
+  bx: number,
+  by: number,
+  camera: MapCamera,
+  view: Viewport,
+  iso: boolean,
+  z = 0,
+): { x: number; y: number } {
+  const scale = 2 ** (camera.zoom - BLOCK_ZOOM);
+  return viewXY(
+    (bx * BLOCK - worldX(camera.center.lon, BLOCK_ZOOM)) * scale,
+    (by * BLOCK - worldY(camera.center.lat, BLOCK_ZOOM)) * scale,
+    view,
+    iso,
+    z,
+  );
+}
+
+/** Screen angle (deg, clockwise from up) that world-north maps to. */
+export function northScreenAngle(iso: boolean): number {
+  if (!iso) return 0;
+  const n = viewXY(0, -1, { width: 0, height: 0 }, true);
+  return (Math.atan2(n.x, -n.y) * 180) / Math.PI;
+}
+
 /** Deterministic 2D hash → 0..1 (stable terrain decoration per cell). */
 export function cellHash(cx: number, cy: number, salt = 0): number {
   let h = (cx * 374761393 + cy * 668265263 + salt * 1274126177) | 0;
