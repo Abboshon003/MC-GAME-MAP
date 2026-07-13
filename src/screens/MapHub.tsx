@@ -7,13 +7,15 @@ import {
   PixelPanel,
   PixelText,
   PoiCallout,
+  PoiPin,
   SearchOverlay,
   TravelModeToggle,
   TurnArrow,
   XPProgressBar,
 } from '@/components';
-import { CompassIcon, PoiIcon } from '@/icons';
+import { CompassIcon } from '@/icons';
 import { ParchmentMap } from '@/map/ParchmentMap';
+import { VoxelWorld3D, type MapProjector } from '@/map3d/VoxelWorld3D';
 import { daylightFor } from '@/map/daylight';
 import { useWorldTiles } from '@/map/useWorldTiles';
 import {
@@ -34,6 +36,7 @@ import {
 } from '@/nav';
 import type { LatLng, Place, RouteProfile, Route } from '@/nav/types';
 import type { Poi } from '@/nav/poi';
+import type { WorldRoad } from '@/map/worldData';
 import { colors, spacing } from '@/theme';
 import { play } from '@/sound/sounds';
 
@@ -72,6 +75,8 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
   const [selectedPoi, setSelectedPoi] = useState<{ poi: Poi; distance: number } | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [mapSize, setMapSize] = useState({ w: 0, h: 0 });
+  const [projector, setProjector] = useState<MapProjector | null>(null);
+  const [glFailed, setGlFailed] = useState(false);
   const arrivedSound = useRef(false);
 
   // — position —
@@ -291,6 +296,15 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
   const remainingSecs = nav ? nav.remainingSeconds : route?.durationSeconds ?? 0;
   const progress = route ? 1 - remaining / Math.max(1, route.distanceMeters) : 0;
 
+  // world → screen for overlay pins/labels: the 3D projector when GL is live,
+  // the flat mercator projector when the SVG fallback is showing.
+  const locate = useMemo(() => {
+    if (projector && !glFailed) return (p: LatLng) => projector.project(p);
+    const proj = makeProjector(camera, view);
+    return (p: LatLng) => ({ ...proj(p), visible: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projector, glFailed, camera, mapSize.w, mapSize.h]);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.charcoal }}>
       {/* ——— full-bleed voxel map with pan/pinch ——— */}
@@ -311,54 +325,65 @@ export function MapHub({ initialDestination }: { initialDestination?: Place | nu
             ],
           }}
         >
-          {mapSize.w > 0 && (
-            <ParchmentMap
-              camera={camera}
-              route={route}
-              player={navigating && nav ? nav.snapped : browseCenter}
-              heading={fix?.heading ?? 0}
-              destination={destination?.location ?? null}
-              world={tiles.grid}
-              features={tiles.world}
-              daylight={daylight}
-              detail={navigating ? 'lite' : 'full'}
+          {mapSize.w > 0 &&
+            (glFailed ? (
+              <ParchmentMap
+                camera={camera}
+                route={route}
+                player={navigating && nav ? nav.snapped : browseCenter}
+                heading={fix?.heading ?? 0}
+                destination={destination?.location ?? null}
+                world={tiles.grid}
+                features={tiles.world}
+                daylight={daylight}
+                detail={navigating ? 'lite' : 'full'}
+                width={mapSize.w}
+                height={mapSize.h}
+              />
+            ) : (
+              <VoxelWorld3D
+                world={tiles.grid}
+                features={tiles.world}
+                route={route}
+                camera={camera}
+                player={navigating && nav ? nav.snapped : browseCenter}
+                heading={fix?.heading ?? 0}
+                destination={destination?.location ?? null}
+                daylight={daylight}
+                width={mapSize.w}
+                height={mapSize.h}
+                onCameraChange={(p) => setProjector(() => p)}
+                onFail={() => setGlFailed(true)}
+              />
+            ))}
+
+          {/* ——— street name labels ——— */}
+          {mapSize.w > 0 && !navigating && tiles.world && (
+            <StreetLabelsOverlay
+              roads={tiles.world.roads}
+              locate={locate}
               width={mapSize.w}
               height={mapSize.h}
             />
           )}
 
-          {/* ——— tappable business markers (same projector as the map) ——— */}
+          {/* ——— tappable business pins (real names, category colors) ——— */}
           {mapSize.w > 0 &&
-            (() => {
-              const proj = makeProjector(camera, view);
-              return nearbyPois.map(({ p }) => {
-                const pos = proj(p.location);
-                if (pos.x < -20 || pos.x > mapSize.w + 20 || pos.y < -20 || pos.y > mapSize.h + 20) return null;
-                return (
-                  <Pressable
-                    key={p.id}
+            nearbyPois.map(({ p }, idx) => {
+              const pos = locate(p.location);
+              if (!pos.visible) return null;
+              if (pos.x < -30 || pos.x > mapSize.w + 30 || pos.y < -30 || pos.y > mapSize.h + 30) return null;
+              return (
+                <View key={p.id} style={{ position: 'absolute', left: pos.x - 15, top: pos.y - 38 }}>
+                  <PoiPin
+                    category={p.category}
+                    name={p.name}
+                    showLabel={idx < 8}
                     onPress={() => openPoi(p)}
-                    style={{ position: 'absolute', left: pos.x - 15, top: pos.y - 15, flexDirection: 'row', alignItems: 'center' }}
-                    hitSlop={6}
-                  >
-                    <PoiIcon category={p.category} size={30} />
-                    <View
-                      style={{
-                        marginLeft: 2,
-                        paddingHorizontal: 3,
-                        paddingVertical: 1,
-                        backgroundColor: 'rgba(20,20,20,0.72)',
-                        maxWidth: 96,
-                      }}
-                    >
-                      <PixelText variant="tiny" color={colors.textLight} numberOfLines={1}>
-                        {p.name}
-                      </PixelText>
-                    </View>
-                  </Pressable>
-                );
-              });
-            })()}
+                  />
+                </View>
+              );
+            })}
         </View>
 
         {/* ——— reroute overlay ——— */}
@@ -581,5 +606,78 @@ function BottomHud(props: {
         </PixelPanel>
       )}
     </View>
+  );
+}
+
+/** Street-name chips positioned & rotated along their (projected) roads. */
+function StreetLabelsOverlay({
+  roads,
+  locate,
+  width,
+  height,
+}: {
+  roads: WorldRoad[];
+  locate: (p: LatLng) => { x: number; y: number; visible: boolean };
+  width: number;
+  height: number;
+}) {
+  const labels: Array<{ name: string; x: number; y: number; angle: number; len: number }> = [];
+  const seen = new Set<string>();
+
+  for (const road of roads) {
+    if (!road.name || seen.has(road.name) || road.pts.length < 2) continue;
+    const a = locate(road.pts[0]);
+    const b = locate(road.pts[road.pts.length - 1]);
+    const mid = locate(road.pts[Math.floor(road.pts.length / 2)]);
+    if (!mid.visible) continue;
+    if (mid.x < 30 || mid.x > width - 30 || mid.y < 40 || mid.y > height - 40) continue;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 90) continue;
+    let angle = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+    if (angle > 90) angle -= 180;
+    if (angle < -90) angle += 180;
+    seen.add(road.name);
+    labels.push({ name: road.name, x: mid.x, y: mid.y, angle, len });
+  }
+
+  // longest roads win; drop labels that would collide with an accepted one
+  labels.sort((m, n) => n.len - m.len);
+  const placed: Array<{ x: number; y: number }> = [];
+  const spaced = labels.filter((l) => {
+    if (placed.some((p) => Math.hypot(p.x - l.x, p.y - l.y) < 90)) return false;
+    placed.push({ x: l.x, y: l.y });
+    return true;
+  });
+
+  return (
+    <>
+      {spaced.slice(0, 8).map((l) => (
+        <View
+          key={l.name}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: l.x - 70,
+            top: l.y - 10,
+            width: 140,
+            alignItems: 'center',
+            transform: [{ rotate: `${l.angle.toFixed(1)}deg` }],
+          }}
+        >
+          <PixelText
+            variant="bodySM"
+            color="#FFFFFF"
+            numberOfLines={1}
+            style={{
+              textShadowColor: '#1E1E1E',
+              textShadowOffset: { width: 1.5, height: 1.5 },
+              textShadowRadius: 0,
+            }}
+          >
+            {l.name}
+          </PixelText>
+        </View>
+      ))}
+    </>
   );
 }

@@ -20,6 +20,7 @@ export const PATTERN: Record<TerrainType, string> = {
   road: 'tx-asphalt',
   road_major: 'tx-asphaltMajor',
   sidewalk: 'tx-sidewalk',
+  path: 'tx-path',
   sand: 'tx-sand',
 };
 
@@ -91,6 +92,13 @@ export function MapTextures() {
         <Rect x={0} y={0} width={10} height={1} fill="#A8A89F" />
         <Rect x={4} y={0} width={1} height={10} fill="#ADADA4" />
         <Rect x={7} y={6} width={1} height={1} fill="#C4C4BB" />
+      </Pattern>
+      {/* gravel footpath */}
+      <Pattern id="tx-path" width={8} height={8} patternUnits="userSpaceOnUse">
+        <Rect width={8} height={8} fill="#A08A5E" />
+        <Rect x={1} y={2} width={1} height={1} fill="#8F7A50" />
+        <Rect x={5} y={5} width={1} height={1} fill="#B29A6C" />
+        <Rect x={3} y={6} width={1} height={1} fill="#8F7A50" />
       </Pattern>
       {/* sand */}
       <Pattern id="tx-sand" width={8} height={8} patternUnits="userSpaceOnUse">

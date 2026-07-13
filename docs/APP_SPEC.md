@@ -13,7 +13,9 @@ Design / default iOS — redesign it.** Full rules live in
 ## Platform & stack
 
 - **React Native + Expo (SDK 57), TypeScript, expo-router**
-- Rendering: `react-native-svg` (voxel map, pixel icons)
+- Rendering: **isometric 3D voxel engine** on `expo-gl` + `three` (`src/map3d/`),
+  with the `react-native-svg` top-down map (`src/map/ParchmentMap.tsx`) as an
+  automatic fallback when GL is unavailable; pixel icons via `react-native-svg`
 - Position: `expo-location` (GPS; browser geolocation on web)
 - Units: **US customary** (feet / miles) by default — `formatDistance` in
   `src/nav/geo.ts`.
@@ -30,7 +32,19 @@ Design / default iOS — redesign it.** Full rules live in
 | `/saved` | Saved Places | Chest screen; each place is an item in a slot. Reached from the corner menu. |
 | `/downloads` | Download Area | Offline regions as item cards with XP progress bars. Reached from the corner menu. |
 
-## The voxel map
+## The 3D voxel map (`src/map3d/`)
+
+The primary renderer: a fixed-angle isometric three.js scene fed by the same
+OSM pipeline below. `pixelTextures.ts` builds nearest-filter DataTextures
+(no canvas — native + web identical); `buildScene.ts` constructs the ground
+plane, instanced terrain blocks, stepped-gable/flat-roof buildings with hard
+sun shadows, voxel trees, park flowers, water shorelines, crosswalk stripes
+at road junctions, the gold block route, player arrow and destination banner;
+`VoxelWorld3D.tsx` drives the camera (browse / fit-route / follow), applies
+the day/dusk/night light grade, and exposes a world→screen projector used by
+the RN overlay (category POI pins with real-name chips, street labels).
+
+## The 2D voxel ground pipeline (shared data + SVG fallback)
 
 - `src/map/worldData.ts` fetches roads, water, parks/landuse, buildings and
   business POIs for a bbox around the user (Overpass).
