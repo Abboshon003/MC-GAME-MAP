@@ -62,20 +62,26 @@ export async function fetchWorld(
   signal?: AbortSignal,
 ): Promise<WorldData> {
   const box = bbox(center, radiusMeters);
-  const query = `[out:json][timeout:25];
+  // Tag lists are deliberately narrow: pulling *every* amenity/shop node in a
+  // dense city is what made first load take minutes. Fetch only what we draw.
+  const AMENITY =
+    'restaurant|cafe|fast_food|bar|pub|bank|atm|pharmacy|hospital|clinic|doctors|fuel|charging_station|school|university|college|library|place_of_worship|cinema|theatre|marketplace|parking';
+  const SHOP =
+    'supermarket|convenience|grocery|greengrocer|bakery|mall|department_store|clothes|hardware|electronics|books|florist|butcher|coffee|deli';
+  const query = `[out:json][timeout:20];
 (
-  way["highway"](${box});
+  way["highway"~"motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|service|pedestrian|footway"](${box});
   way["natural"="water"](${box});
   way["landuse"~"reservoir|basin"](${box});
   way["landuse"~"forest|grass|meadow|recreation_ground|village_green"](${box});
   way["leisure"~"park|garden|pitch|golf_course"](${box});
   way["natural"="sand"](${box});
   way["building"](${box});
-  node["amenity"](${box});
-  node["shop"](${box});
+  node["amenity"~"${AMENITY}"](${box});
+  node["shop"~"${SHOP}"](${box});
   node["tourism"~"hotel|motel|hostel|guest_house|attraction|museum"](${box});
 );
-out body geom 2000;`;
+out body geom 1500;`;
 
   const data = await postOverpass(query, signal);
   const polygons: WorldPolygon[] = [];
@@ -128,21 +134,32 @@ interface OverpassResponse {
   elements: OverpassElement[];
 }
 
-/** POST the query, trying mirrors in turn. */
+/** Per-mirror timeout: a stuck server should fail fast so we try the next. */
+const MIRROR_TIMEOUT_MS = 15000;
+
+/** POST the query, trying mirrors in turn with a hard per-mirror timeout. */
 async function postOverpass(query: string, signal?: AbortSignal): Promise<OverpassResponse> {
   let lastErr: unknown;
   for (const url of OVERPASS_ENDPOINTS) {
+    const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort();
+    signal?.addEventListener('abort', onAbort);
+    const timer = setTimeout(() => ctrl.abort(), MIRROR_TIMEOUT_MS);
     try {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `data=${encodeURIComponent(query)}`,
-        signal,
+        signal: ctrl.signal,
       });
       if (!res.ok) throw new Error(`Overpass ${res.status}`);
       return (await res.json()) as OverpassResponse;
     } catch (e) {
       lastErr = e;
+      if (signal?.aborted) throw e; // caller cancelled (moved/unmounted)
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error('Overpass unreachable');
